@@ -7,11 +7,16 @@
 ;   You must not remove this notice, or any other, from this software.
 
 (require
- '[clojure.pprint :as pp]
- '[datomic.client :as client]
- '[clojure.core.async :refer (<!!)])
+  '[clojure.pprint :as pp]
+  '[datomic.client.api :as d])
 
-(def conn (<!! (client/connect {:db-name "client-example-filters"})))
+(def cfg {:server-type :peer-server
+          :access-key "myaccesskey"
+          :secret "mysecret"
+          :endpoint "localhost:8998"})
+
+(def client (d/client cfg))
+(def conn (d/connect client {:db-name "client-example-filters"}))
 
 (def txes
   [[{:db/ident :item/id
@@ -56,13 +61,13 @@
      :db/txInstant #inst "2014-05-15"}]])
 
 (def results (map
-              #(<!! (client/transact conn {:tx-data %}))
-              txes))
+               #(d/transact conn {:tx-data %})
+               txes))
 
-(def db (client/db conn))
-(def as-of-eoy-2013 (client/as-of db #inst "2014-01-01"))
-(def since-2014 (client/since db #inst "2014-01-01"))
-(def history (client/history db))
+(def db (d/db conn))
+(def as-of-eoy-2013 (d/as-of db #inst "2014-01-01"))
+(def since-2014 (d/since db #inst "2014-01-01"))
+(def history (d/history db))
 
 (defn trunc
   "Return a string rep of x, shortened to n chars or less"
@@ -75,75 +80,66 @@
 (def tx-part-e-a-added
   "Sort datoms by tx, then e, then a, then added"
   (reify
-   java.util.Comparator
-   (compare
-    [_ x y]
-    (cond
-     (< (:tx x) (:tx y)) -1
-     (> (:tx x) (:tx y)) 1
-     (< (:e x) (:e y)) -1
-     (> (:e x) (:e y)) 1
-     (< (:a x) (:a y)) -1
-     (> (:a x) (:a y)) 1
-     (false? (:added x)) -1
-     :default 1))))
+    java.util.Comparator
+    (compare
+      [_ x y]
+      (cond
+        (< (:tx x) (:tx y)) -1
+        (> (:tx x) (:tx y)) 1
+        (< (:e x) (:e y)) -1
+        (> (:e x) (:e y)) 1
+        (< (:a x) (:a y)) -1
+        (> (:a x) (:a y)) 1
+        (false? (:added x)) -1
+        :default 1))))
 
 (defn datom-table
   "Print a collection of datoms in an org-mode compatible table."
   [db datoms]
   (let [attr (memoize (fn [eid]
-                        (:db/ident (<!! (client/pull db {:eid eid
-                                                         :selector [:db/ident]})))))]
+                        (:db/ident (d/pull db [:db/ident] eid))))]
     (->> datoms
          (map
-          (fn [{:keys [e a v t added]}]
-            {"e" (format "0x%016x" e)
-             "a" (attr a)
-             "v" (trunc v 24)
-             "t" (format "0x%x" t)
-             "added" added}))
+           (fn [{:keys [e a v t added]}]
+             {"e" (format "0x%016x" e)
+              "a" (attr a)
+              "v" (trunc v 24)
+              "t" (format "0x%x" t)
+              "added" added}))
          (pp/print-table ["e" "a" "v" "t" "added"]))))
 
 ;; print db as a table
-(->> (client/tx-range conn {:start #inst "2012"})
-     <!!
-     (sequence
-      (comp
-       (halt-when client/error?)
-       (mapcat :data)))
+(->> (d/tx-range conn {:start #inst "2012"})
+     (sequence (mapcat :data))
      (datom-table db))
 
 ;; full history of dilithium crystal assertions
-(->> (client/q conn {:query '[:find ?aname ?v ?inst
-                              :in $ ?e
-                              :where [?e ?a ?v ?tx true]
-                              [?tx :db/txInstant ?inst]
-                              [?a :db/ident ?aname]]
-                     :args [history [:item/id "DLC-042"]]})
-     <!!
+(->> (d/q '[:find ?aname ?v ?inst
+            :in $ ?e
+            :where [?e ?a ?v ?tx true]
+            [?tx :db/txInstant ?inst]
+            [?a :db/ident ?aname]]
+          history [:item/id "DLC-042"])
      (sort-by #(nth % 2))
      pp/pprint)
 
 ;; full history of dilithium crystal counts
-(->> (client/q conn {:query '[:find ?inst ?count
-                              :in $ ?id
-                              :where [?id :item/count ?count ?tx true]
-                              [?tx :db/txInstant ?inst]]
-                     :args [history [:item/id "DLC-042"]]})
-     <!!
+(->> (d/q '[:find ?inst ?count
+            :in $ ?id
+            :where [?id :item/count ?count ?tx true]
+            [?tx :db/txInstant ?inst]]
+          history [:item/id "DLC-042"])
      (sort-by first)
      pp/pprint)
 
 ;; corrected history of dilithium crystal counts
-(->> (client/q conn {:query '[:find ?inst ?count
-                              :in $ ?id
-                              :where
-                              [?id :item/count ?count ?tx true]
-                              [?tx :db/txInstant ?inst]
-                              (not [?tx :tx/error])]
-                     :args [history [:item/id "DLC-042"]]})
-     <!!
+(->> (d/q '[:find ?inst ?count
+            :in $ ?id
+            :where
+            [?id :item/count ?count ?tx true]
+            [?tx :db/txInstant ?inst]
+            (not [?tx :tx/error])]
+          history [:item/id "DLC-042"])
      (sort-by first)
      pp/pprint)
-
 

@@ -1,3 +1,11 @@
+;   Copyright (c) Cognitect, Inc. All rights reserved.
+;   The use and distribution terms for this software are covered by the
+;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;   which can be found in the file epl-v10.html at the root of this distribution.
+;   By using this software in any fashion, you are agreeing to be bound by
+;   the terms of this license.
+;   You must not remove this notice, or any other, from this software.
+
 (require '[datomic.client.api :as d])
 
 (def cfg {:server-type :peer-server
@@ -43,8 +51,8 @@
           :inv/size size
           :inv/type type})
        (map-indexed
-        (fn [idx map]
-          (assoc map :inv/sku (str "SKU-" idx))))))
+         (fn [idx map]
+           (assoc map :inv/sku (str "SKU-" idx))))))
 sample-data
 
 (d/transact conn {:tx-data sample-data})
@@ -63,9 +71,9 @@ sample-data
 ;; same color as SKU-42
 (d/q '[:find ?e ?sku
        :where [?e :inv/sku "SKU-42"]
-              [?e :inv/color ?color]
-              [?e2 :inv/color ?color]
-              [?e2 :inv/sku ?sku]]
+       [?e :inv/color ?color]
+       [?e2 :inv/color ?color]
+       [?e2 :inv/sku ?sku]]
      db)
 
 (def order-schema
@@ -96,10 +104,10 @@ sample-data
 (d/q '[:find ?sku
        :in $ ?inv
        :where [?item :item/id ?inv]
-              [?order :order/items ?item]
-              [?order :order/items ?other-item]
-              [?other-item :item/id ?other-inv]
-              [?other-inv :inv/sku ?sku]]
+       [?order :order/items ?item]
+       [?order :order/items ?other-item]
+       [?other-item :item/id ?other-inv]
+       [?other-inv :inv/sku ?sku]]
      db [:inv/sku "SKU-25"])
 
 (def rules
@@ -112,7 +120,7 @@ sample-data
 (d/q '[:find ?sku
        :in $ % ?inv
        :where (ordered-together ?inv ?other-inv)
-              [?other-inv :inv/sku ?sku]]
+       [?other-inv :inv/sku ?sku]]
      db rules [:inv/sku "SKU-25"])
 
 ;; time
@@ -132,29 +140,27 @@ sample-data
 
 ;; never had any 22s
 (d/transact
-      conn
-      {:tx-data [[:db/retract [:inv/sku "SKU-22"] :inv/count 7]
-                 [:db/add "datomic.tx" :db/doc "remove incorrect assertion"]]})
+  conn
+  {:tx-data [[:db/retract [:inv/sku "SKU-22"] :inv/count 7]
+             [:db/add "datomic.tx" :db/doc "remove incorrect assertion"]]})
 
 ;; correct count for 42s
 (d/transact
-      conn
-      {:tx-data [[:db/add [:inv/sku "SKU-42"] :inv/count 1000]
-                 [:db/add "datomic.tx" :db/doc "correct data entry error"]]})
+  conn
+  {:tx-data [[:db/add [:inv/sku "SKU-42"] :inv/count 1000]
+             [:db/add "datomic.tx" :db/doc "correct data entry error"]]})
 
 
 (def db (d/db conn))
 (d/q '[:find ?sku ?count
        :where [?inv :inv/sku ?sku]
-              [?inv :inv/count ?count]]
+       [?inv :inv/count ?count]]
      db)
 
 ;; transactions
-(def txid (->> (d/q
-                     {:query '[:find (max 3 ?tx)
-                               :where
-                               [?tx :db/txInstant]]
-                      :args [db]})
+(def txid (->> (d/q '[:find (max 3 ?tx)
+                      :where [?tx :db/txInstant]]
+                    db)
                first first last))
 
 ;; as-of query
@@ -163,7 +169,7 @@ sample-data
 
 (d/q '[:find ?sku ?count
        :where [?inv :inv/sku ?sku]
-              [?inv :inv/count ?count]]
+       [?inv :inv/count ?count]]
      db-before)
 
 ;; history query
@@ -171,7 +177,7 @@ sample-data
 (def db-hist (d/history db))
 (->> (d/q '[:find ?tx ?sku ?val ?op
             :where [?inv :inv/count ?val ?tx ?op]
-                   [?inv :inv/sku ?sku]]
+            [?inv :inv/sku ?sku]]
           db-hist)
      (sort-by first)
      (pp/pprint))

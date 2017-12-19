@@ -9,46 +9,45 @@
 (require '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.pprint :as pp]
-         '[datomic.client :as client]
-         '[clojure.core.async :refer [<!!]])
+         '[datomic.client.api :as d])
 
-(def conn (<!! (client/connect {:db-name "client-example-component-attributes"})))
+(def cfg {:server-type :peer-server
+          :access-key "myaccesskey"
+          :secret "mysecret"
+          :endpoint "localhost:8998"})
+
+(def client (d/client cfg))
+(def conn (d/connect client {:db-name "client-example-component-attributes"}))
 (def schema (-> (io/file "examples/social-news.edn") slurp edn/read-string))
-(mapv #(<!! (client/transact conn {:tx-data %})) schema)
+(mapv #(d/transact conn {:tx-data %}) schema)
 
 ;; create a story and some comments
 (let [{:keys [tempids db-after] :as res}
-      (<!!
-        (client/transact conn
-          {:tx-data
-           [{:db/id "story"
-             :story/title "Getting Started"
-             :story/url "http://docs.datomic.com/getting-started.html"}
-            {:db/id "comment-1"
-             :comment/body "It woud be great to learn about component attributes."
-             :_comments "story"}
-            {:db/id "comment-2"
-             :comment/body "I agree."
-             :_comments "comment-1"}]}))]
+      (d/transact conn
+                  {:tx-data
+                   [{:db/id "story"
+                     :story/title "Getting Started"
+                     :story/url "http://docs.datomic.com/getting-started.html"}
+                    {:db/id "comment-1"
+                     :comment/body "It woud be great to learn about component attributes."
+                     :_comments "story"}
+                    {:db/id "comment-2"
+                     :comment/body "I agree."
+                     :_comments "comment-1"}]})]
   (def story (get tempids "story"))
   (def comment-1 (get tempids "comment-1"))
   (def comment-2 (get tempids "comment-2"))
   (def db db-after))
 
-(-> (client/pull db
-                 {:selector '[*]
-                  :eid story})
-    <!!
-    pp/pprint)
+(pp/pprint (d/pull db '[*] story))
 
 ;; retract the story
 (def retracted-es
-  (->> (client/transact conn {:tx-data [[:db/retractEntity story]]})
-    <!!
-    :tx-data
-    (remove :added)
-    (map :e)
-    (into #{})))
+  (->> (d/transact conn {:tx-data [[:db/retractEntity story]]})
+       :tx-data
+       (remove :added)
+       (map :e)
+       (into #{})))
 
 ;; retraction recursively retracts component comments
 (= retracted-es #{story comment-1 comment-2})

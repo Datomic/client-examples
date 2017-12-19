@@ -6,67 +6,53 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
-(require '[datomic.client :as client]
-         '[clojure.core.async :refer [<!!] :as a]
+(require '[datomic.client.api :as d]
          '[clojure.pprint :as pp])
 
-(def conn (<!! (client/connect {:db-name "client-example-likes"})))
+(def cfg {:server-type :peer-server
+          :access-key "myaccesskey"
+          :secret "mysecret"
+          :endpoint "localhost:8998"})
+
+(def client (d/client cfg))
+(def conn (d/connect client {:db-name "client-example-likes"}))
 
 ;; schema
-(<!!
-  (client/transact conn
-    {:tx-data
-     [{:db/ident :likes
-       :db/valueType :db.type/ref
-       :db/cardinality :db.cardinality/many}
-      {:db/ident :name
-       :db/valueType :db.type/string
-       :db/unique :db.unique/identity
-       :db/cardinality :db.cardinality/many}]}))
-
+(d/transact conn
+            {:tx-data
+             [{:db/ident :likes
+               :db/valueType :db.type/ref
+               :db/cardinality :db.cardinality/many}
+              {:db/ident :name
+               :db/valueType :db.type/string
+               :db/unique :db.unique/identity
+               :db/cardinality :db.cardinality/many}]})
 
 ;; data
-(<!!
-  (client/transact conn
-    {:tx-data
-     [{:db/id "broccoli"
-       :name "broccoli"}
-      {:db/id "pizza"
-       :name "pizza"}
-      {:name "jane"
-       :likes ["broccoli" "pizza"]}]}))
+(d/transact conn
+            {:tx-data
+             [{:db/id "broccoli"
+               :name "broccoli"}
+              {:db/id "pizza"
+               :name "pizza"}
+              {:name "jane"
+               :likes ["broccoli" "pizza"]}]})
 
-(<!!
-  (client/transact conn
-    {:tx-data
-     [[:db/retract [:name "jane"] :likes [:name "pizza"]]]}))
+(d/transact conn {:tx-data
+                  [[:db/retract [:name "jane"] :likes [:name "pizza"]]]})
 
-(def history (-> conn client/db client/history))
+(def history (-> conn d/db d/history))
 
-(<!!
- (client/q conn {:query '[:find ?name ?t ?op
-                          :in $ ?e
-                          :where [?e :likes ?v ?t ?op]
-                                 [?v :name ?name]]
-                 :args [history [:name "jane"]]}))
+(d/q '[:find ?name ?t ?op
+       :in $ ?e
+       :where [?e :likes ?v ?t ?op]
+       [?v :name ?name]]
+     history [:name "jane"])
 
-(def db (-> conn client/db))
+(def db (-> conn d/db))
 
-(<!!
- (client/pull db {:selector [{:likes [:name]}]
-                  :eid [:name "jane"]}))
+(d/pull db '[{:likes [:name]}] [:name "jane"])
 
+(d/pull db '[{:_likes [:name]}] [:name "broccoli"])
 
-(<!!
- (client/pull db {:selector [{:_likes [:name]}]
-                  :eid [:name "broccoli"]}))
-
-
-(<!! (client/pull db '{:eid [:name "jane"]
-                       :selector [*]}))
-
-
-
-
-
-
+(d/pull db '[*] [:name "jane"])
