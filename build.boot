@@ -7,4 +7,4 @@
 
 (set-env!
  :dependencies
- '[[com.datomic/clj-client "0.8.606"]])
+ '[[com.datomic/client-pro "0.8.14"]])
