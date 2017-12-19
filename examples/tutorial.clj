@@ -1,7 +1,12 @@
-(require '[datomic.client :as client]
-         '[clojure.core.async :refer (<!!)])
+(require '[datomic.client.api :as d])
 
-(def conn (<!! (client/connect {:db-name "client-example-tutorial"})))
+(def cfg {:server-type :peer-server
+          :access-key "myaccesskey"
+          :secret "mysecret"
+          :endpoint "localhost:8998"})
+
+(def client (d/client cfg))
+(def conn (d/connect client {:db-name "hello"}))
 
 (def colors [:red :green :blue :yellow])
 (def sizes [:small :medium :large :xlarge])
@@ -11,9 +16,9 @@
   [x]
   (mapv #(hash-map :db/ident %) x))
 
-(<!! (client/transact conn {:tx-data (make-idents colors)}))
-(<!! (client/transact conn {:tx-data (make-idents sizes)}))
-(<!! (client/transact conn {:tx-data (make-idents types)}))
+(d/transact conn {:tx-data (make-idents colors)})
+(d/transact conn {:tx-data (make-idents sizes)})
+(d/transact conn {:tx-data (make-idents types)})
 
 (def schema-1
   [{:db/ident :inv/sku
@@ -30,7 +35,7 @@
     :db/valueType :db.type/ref
     :db/cardinality :db.cardinality/one}])
 
-(<!! (client/transact conn {:tx-data schema-1}))
+(d/transact conn {:tx-data schema-1})
 
 (def sample-data
   (->> (for [color colors size sizes type types]
@@ -42,30 +47,26 @@
           (assoc map :inv/sku (str "SKU-" idx))))))
 sample-data
 
-(<!! (client/transact conn {:tx-data sample-data}))
+(d/transact conn {:tx-data sample-data})
 
-(def db (client/db conn))
+(def db (d/db conn))
 
 [:inv/sku "SKU-42"]
 
 ;; pull
-(<!! (client/pull
-      db
-      {:eid [:inv/sku "SKU-42"]
-       :selector [{:inv/color [:db/ident]}
-                  {:inv/size [:db/ident]}
-                  {:inv/type [:db/ident]}]}))
+(d/pull db
+        [{:inv/color [:db/ident]}
+         {:inv/size [:db/ident]}
+         {:inv/type [:db/ident]}]
+        [:inv/sku "SKU-42"])
 
 ;; same color as SKU-42
-(<!! (client/q
-      conn
-      {:query '[:find ?e ?sku
-                :where
-                [?e :inv/sku "SKU-42"]
-                [?e :inv/color ?color]
-                [?e2 :inv/color ?color]
-                [?e2 :inv/sku ?sku]]
-       :args [db]}))
+(d/q '[:find ?e ?sku
+       :where [?e :inv/sku "SKU-42"]
+              [?e :inv/color ?color]
+              [?e2 :inv/color ?color]
+              [?e2 :inv/sku ?sku]]
+     db)
 
 (def order-schema
   [{:db/ident :order/items
@@ -79,7 +80,7 @@ sample-data
     :db/valueType :db.type/long
     :db/cardinality :db.cardinality/one}])
 
-(<!! (client/transact conn {:tx-data order-schema}))
+(d/transact conn {:tx-data order-schema})
 
 (def add-order
   {:order/items
@@ -88,21 +89,18 @@ sample-data
     {:item/id [:inv/sku "SKU-26"]
      :item/count 20}]})
 
-(<!! (client/transact conn {:tx-data [add-order]}))
+(d/transact conn {:tx-data [add-order]})
 
-(def db (client/db conn))
+(def db (d/db conn))
 ;; items that appear in the same order as SKU-25
-(<!! (client/q
-      conn
-      {:query '[:find ?sku
-                :in $ ?inv
-                :where
-                [?item :item/id ?inv]
-                [?order :order/items ?item]
-                [?order :order/items ?other-item]
-                [?other-item :item/id ?other-inv]
-                [?other-inv :inv/sku ?sku]]
-       :args [db [:inv/sku "SKU-25"]]}))
+(d/q '[:find ?sku
+       :in $ ?inv
+       :where [?item :item/id ?inv]
+              [?order :order/items ?item]
+              [?order :order/items ?other-item]
+              [?other-item :item/id ?other-inv]
+              [?other-inv :inv/sku ?sku]]
+     db [:inv/sku "SKU-25"])
 
 (def rules
   '[[(ordered-together ?inv ?other-inv)
@@ -111,14 +109,11 @@ sample-data
      [?order :order/items ?other-item]
      [?other-item :item/id ?other-inv]]])
 
-(<!! (client/q
-      conn
-      {:query '[:find ?sku
-                :in $ % ?inv
-                :where
-                (ordered-together ?inv ?other-inv)
-                [?other-inv :inv/sku ?sku]]
-       :args [db rules [:inv/sku "SKU-25"]]}))
+(d/q '[:find ?sku
+       :in $ % ?inv
+       :where (ordered-together ?inv ?other-inv)
+              [?other-inv :inv/sku ?sku]]
+     db rules [:inv/sku "SKU-25"])
 
 ;; time
 (def inventory-counts
@@ -126,68 +121,58 @@ sample-data
     :db/valueType :db.type/long
     :db/cardinality :db.cardinality/one}])
 
-(<!! (client/transact conn {:tx-data inventory-counts}))
+(d/transact conn {:tx-data inventory-counts})
 
 (def inventory-update
   [[:db/add [:inv/sku "SKU-21"] :inv/count 7]
    [:db/add [:inv/sku "SKU-22"] :inv/count 7]
    [:db/add [:inv/sku "SKU-42"] :inv/count 100]])
 
-(<!! (client/transact conn {:tx-data inventory-update}))
+(d/transact conn {:tx-data inventory-update})
 
 ;; never had any 22s
-(<!! (client/transact
+(d/transact
       conn
       {:tx-data [[:db/retract [:inv/sku "SKU-22"] :inv/count 7]
-                 [:db/add "datomic.tx" :db/doc "remove incorrect assertion"]]}))
+                 [:db/add "datomic.tx" :db/doc "remove incorrect assertion"]]})
 
 ;; correct count for 42s
-(<!! (client/transact
+(d/transact
       conn
       {:tx-data [[:db/add [:inv/sku "SKU-42"] :inv/count 1000]
-                 [:db/add "datomic.tx" :db/doc "correct data entry error"]]}))
+                 [:db/add "datomic.tx" :db/doc "correct data entry error"]]})
 
 
-(def db (client/db conn))
-(<!! (client/q
-      conn
-      {:query '[:find ?sku ?count
-                :where
-                [?inv :inv/sku ?sku]
-                [?inv :inv/count ?count]]
-       :args [db]}))
+(def db (d/db conn))
+(d/q '[:find ?sku ?count
+       :where [?inv :inv/sku ?sku]
+              [?inv :inv/count ?count]]
+     db)
 
 ;; transactions
-(def txid (->> (<!! (client/q
-                     conn
+(def txid (->> (d/q
                      {:query '[:find (max 3 ?tx)
                                :where
                                [?tx :db/txInstant]]
-                      :args [db]}))
+                      :args [db]})
                first first last))
 
 ;; as-of query
 (def db-before
-  (client/as-of db txid))
+  (d/as-of db txid))
 
-(<!! (client/q
-      conn
-      {:query '[:find ?sku ?count
-                :where
-                [?inv :inv/sku ?sku]
-                [?inv :inv/count ?count]]
-       :args [db-before]}))
+(d/q '[:find ?sku ?count
+       :where [?inv :inv/sku ?sku]
+              [?inv :inv/count ?count]]
+     db-before)
 
 ;; history query
 (require '[clojure.pprint :as pp])
-(def db-hist (client/history db))
-(->> (<!! (client/q
-           conn
-           {:query '[:find ?tx ?sku ?val ?op
-                     :where
-                     [?inv :inv/count ?val ?tx ?op]
-                     [?inv :inv/sku ?sku]]
-            :args [db-hist]}))
+(def db-hist (d/history db))
+(->> (d/q '[:find ?tx ?sku ?val ?op
+            :where [?inv :inv/count ?val ?tx ?op]
+                   [?inv :inv/sku ?sku]]
+          db-hist)
      (sort-by first)
      (pp/pprint))
 
